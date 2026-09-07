@@ -242,11 +242,17 @@ final class IliasActivityService implements IIliasActivityService {
 	/** @return array<string,mixed> */
 	private function result(Activity $activity, Result $result): array {
 		if ($result->isOK()) {
+			$value = $result->value();
+			$output = $activity->getOutputDescription($this->dataFactory->description());
+			if (!$output->matches($value)) {
+				throw new RuntimeException('Output description does not match result.');
+			}
+
 			return [
 				'ok' => true,
 				'activity' => (string)$activity->getName(),
 				'type' => $activity->getType()->value,
-				'result' => $result->value()
+				'result' => $output->getPrimitiveRepresentation($value)
 			];
 		}
 
