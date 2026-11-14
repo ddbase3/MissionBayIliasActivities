@@ -1,6 +1,21 @@
 <?php declare(strict_types=1);
 
-namespace MissionBayIliasActivities\Ilias;
+/***********************************************************************
+ * This file is part of MissionBayIliasActivities for BASE3 Framework.
+ *
+ * MissionBayIliasActivities exposes native ILIAS 11 Activities.
+ * It maps the ILIAS repository contracts into MissionBay agent tools.
+ * Native ILIAS identity and authorization remain authoritative.
+ *
+ * Developed by Daniel Dahme
+ * Licensed under GPL-3.0-or-later
+ * https://www.gnu.org/licenses/gpl-3.0.en.html
+ *
+ * https://base3.de
+ ***********************************************************************/
+
+
+namespace Base3\MissionBayIliasActivities\Ilias;
 
 use ILIAS\Data\Description\DList;
 use ILIAS\Data\Description\DMap;

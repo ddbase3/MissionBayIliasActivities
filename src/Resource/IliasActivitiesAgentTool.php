@@ -1,14 +1,29 @@
 <?php declare(strict_types=1);
 
-namespace MissionBayIliasActivities\Resource;
+/***********************************************************************
+ * This file is part of MissionBayIliasActivities for BASE3 Framework.
+ *
+ * MissionBayIliasActivities exposes native ILIAS 11 Activities.
+ * It maps the ILIAS repository contracts into MissionBay agent tools.
+ * Native ILIAS identity and authorization remain authoritative.
+ *
+ * Developed by Daniel Dahme
+ * Licensed under GPL-3.0-or-later
+ * https://www.gnu.org/licenses/gpl-3.0.en.html
+ *
+ * https://base3.de
+ ***********************************************************************/
 
-use AssistantFoundation\Api\IAgentContext;
-use Base3\Accesscontrol\Api\IAccesscontrol;
+
+namespace Base3\MissionBayIliasActivities\Resource;
+
+use Base3\AssistantFoundation\Api\IAgentContext;
+use Base3\CoreFoundation\Accesscontrol\Api\IAccesscontrol;
 use InvalidArgumentException;
-use MissionBay\Api\IAgentTool;
-use MissionBay\Api\IConfirmableAgentTool;
-use MissionBay\Resource\AbstractAgentResource;
-use MissionBayIliasActivities\Api\IIliasActivityService;
+use Base3\MissionBay\Api\IAgentTool;
+use Base3\MissionBay\Api\IConfirmableAgentTool;
+use Base3\MissionBay\Resource\AbstractAgentResource;
+use Base3\MissionBayIliasActivities\Api\IIliasActivityService;
 use Throwable;
 
 final class IliasActivitiesAgentTool extends AbstractAgentResource implements IAgentTool, IConfirmableAgentTool {

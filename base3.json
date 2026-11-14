@@ -1,7 +1,7 @@
 {
 	"manifestVersion": 1,
 	"name": "MissionBayIliasActivities",
-	"namespace": "MissionBayIliasActivities",
+	"namespace": "Base3\\MissionBayIliasActivities",
 	"version": "0.1.0",
 	"description": "Exposes native ILIAS 11+ Activities through MissionBay agent tools.",
 	"license": "GPL-3.0-or-later",
@@ -13,9 +13,9 @@
 		}
 	],
 	"dependencies": {
-		"Base3Framework": ">=4.10.0",
-		"Base3Ilias": ">=4.21.0",
 		"AssistantFoundation": ">=4.18.0",
+		"Base3Ilias": ">=4.21.0",
+		"CoreFoundation": ">=4.10.0",
 		"MissionBay": ">=4.40.0"
 	}
 }

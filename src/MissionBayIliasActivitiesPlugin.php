@@ -1,14 +1,29 @@
 <?php declare(strict_types=1);
 
-namespace MissionBayIliasActivities;
+/***********************************************************************
+ * This file is part of MissionBayIliasActivities for BASE3 Framework.
+ *
+ * MissionBayIliasActivities exposes native ILIAS 11 Activities.
+ * It maps the ILIAS repository contracts into MissionBay agent tools.
+ * Native ILIAS identity and authorization remain authoritative.
+ *
+ * Developed by Daniel Dahme
+ * Licensed under GPL-3.0-or-later
+ * https://www.gnu.org/licenses/gpl-3.0.en.html
+ *
+ * https://base3.de
+ ***********************************************************************/
 
-use Base3\Api\IContainer;
-use Base3\Api\IPlugin;
+
+namespace Base3\MissionBayIliasActivities;
+
+use Base3\CoreFoundation\Api\IContainer;
+use Base3\CoreFoundation\Api\IPlugin;
 use ILIAS\Component\Activities\Repository;
 use ILIAS\DI\Container as IliasContainer;
-use MissionBayIliasActivities\Api\IIliasActivityService;
-use MissionBayIliasActivities\Ilias\ActivitySchemaMapper;
-use MissionBayIliasActivities\Ilias\IliasActivityService;
+use Base3\MissionBayIliasActivities\Api\IIliasActivityService;
+use Base3\MissionBayIliasActivities\Ilias\ActivitySchemaMapper;
+use Base3\MissionBayIliasActivities\Ilias\IliasActivityService;
 use RuntimeException;
 
 final class MissionBayIliasActivitiesPlugin implements IPlugin {
