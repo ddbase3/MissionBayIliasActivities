@@ -50,7 +50,8 @@ final class IliasActivityService implements IIliasActivityService {
 		$type = $this->normalizeType($type);
 		$limit = max(1, min(100, $limit));
 		$offset = max(0, $offset);
-		$queryTokens = $this->searchTokens($query);
+		$normalizedQuery = $this->normalizeSearchText($query);
+		$queryTokens = $this->searchTokens($normalizedQuery);
 
 		$items = [];
 		foreach ($this->allActivities() as $activity) {
@@ -60,28 +61,13 @@ final class IliasActivityService implements IIliasActivityService {
 
 				$name = (string)$activity->getName();
 				$shortName = $this->shortName($name);
-				$description = null;
-				$score = 0;
+				$description = $this->activityDescription($activity);
+				$score = [0, 0, 0];
 
 				if ($query !== '') {
-					$nameMatch = $this->searchMatch($query, $queryTokens, $name . ' ' . $shortName);
-					if ($nameMatch['matches']) {
-						$score = 100 + $nameMatch['score'];
-					} else {
-						$description = $this->activityDescription($activity);
-						if (!$description['available']) continue;
-
-						$combinedMatch = $this->searchMatch(
-							$query,
-							$queryTokens,
-							$name . ' ' . $shortName . ' ' . $description['value']
-						);
-						if (!$combinedMatch['matches']) continue;
-						$score = $combinedMatch['score'];
-					}
+					$score = $this->searchMatch($normalizedQuery, $queryTokens, $name, $shortName, $description['value']);
+					if ($score[0] === 0 && $score[1] === 0) continue;
 				}
-
-				$description ??= $this->activityDescription($activity);
 				$item = [
 					'name' => $name,
 					'short_name' => $shortName,
@@ -102,7 +88,7 @@ final class IliasActivityService implements IIliasActivityService {
 
 		if ($query !== '') {
 			usort($items, static function(array $a, array $b): int {
-				$scoreCompare = ($b['_search_score'] ?? 0) <=> ($a['_search_score'] ?? 0);
+				$scoreCompare = $b['_search_score'] <=> $a['_search_score'];
 				return $scoreCompare !== 0 ? $scoreCompare : strcmp($a['name'], $b['name']);
 			});
 		} else {
@@ -263,11 +249,20 @@ final class IliasActivityService implements IIliasActivityService {
 				throw new RuntimeException('Output description does not match result.');
 			}
 
+			$primitive = $output->getPrimitiveRepresentation($value);
+			// The native conversion must produce canonical data, not its diagnostic
+			// closure/generator or another non-JSON value. Keep the native match
+			// check above and do not substitute a guessed business schema.
+			if ($primitive !== null && !is_scalar($primitive) && !is_array($primitive) && !$primitive instanceof \stdClass) {
+				throw new RuntimeException('Output description does not match result.');
+			}
+			json_encode($primitive, JSON_THROW_ON_ERROR);
+
 			return [
 				'ok' => true,
 				'activity' => (string)$activity->getName(),
 				'type' => $activity->getType()->value,
-				'result' => $output->getPrimitiveRepresentation($value)
+				'result' => $primitive
 			];
 		}
 
@@ -366,52 +361,67 @@ final class IliasActivityService implements IIliasActivityService {
 		);
 	}
 
-	/** @return array{matches:bool,score:int} */
-	private function searchMatch(string $query, array $queryTokens, string $candidate): array {
-		$normalizedQuery = $this->normalizeSearchText($query);
-		$normalizedCandidate = $this->normalizeSearchText($candidate);
-		if ($normalizedQuery === '') return ['matches' => true, 'score' => 0];
-
+	/**
+	 * Ranks exact names first, then distinct matched terms, then match quality.
+	 * Unmatched terms do not invalidate otherwise relevant metadata.
+	 *
+	 * @param list<string> $queryTokens
+	 * @return array{0:int,1:int,2:int}
+	 */
+	private function searchMatch(string $query, array $queryTokens, string $name, string $shortName, string $description): array {
+		$normalizedName = $this->normalizeSearchText($name);
+		$normalizedShortName = $this->normalizeSearchText($shortName);
+		$normalizedDescription = $this->normalizeSearchText($description);
+		$exact = $query !== '' && ($query === $normalizedName || $query === $normalizedShortName) ? 1 : 0;
+		$nameTokens = $this->searchTokens($normalizedName);
+		$shortNameTokens = $this->searchTokens($normalizedShortName);
+		$descriptionTokens = $this->searchTokens($normalizedDescription);
+		$matched = 0;
 		$score = 0;
-		if (str_contains($normalizedCandidate, $normalizedQuery)) {
-			$score += 40;
+		foreach ($queryTokens as $token) {
+			// Count each term only once, with its strongest evidence across the metadata.
+			$termScore = max(
+				3 * $this->searchTermScore($token, $shortNameTokens),
+				2 * $this->searchTermScore($token, $descriptionTokens),
+				$this->searchTermScore($token, $nameTokens)
+			);
+			if ($termScore === 0) continue;
+			$matched++;
+			$score += $termScore;
 		}
-
-		$candidateTokens = $this->searchTokens($candidate);
-		foreach ($queryTokens as $queryToken) {
-			$matched = false;
-			foreach ($candidateTokens as $candidateToken) {
-				if ($candidateToken === $queryToken) {
-					$score += 12;
-					$matched = true;
-					break;
-				}
-				if (
-					strlen($queryToken) >= 3
-					&& (str_starts_with($candidateToken, $queryToken) || str_starts_with($queryToken, $candidateToken))
-				) {
-					$score += 6;
-					$matched = true;
-					break;
-				}
+		if ($matched > 0) {
+			if (str_contains(' ' . $normalizedShortName . ' ', ' ' . $query . ' ')) {
+				$score += 8;
+			} elseif (str_contains(' ' . $normalizedDescription . ' ', ' ' . $query . ' ')) {
+				$score += 4;
 			}
-			if (!$matched) return ['matches' => false, 'score' => 0];
 		}
+		return [$exact, $matched, $score];
+	}
 
-		return ['matches' => true, 'score' => $score];
+	/** @param list<string> $candidateTokens */
+	private function searchTermScore(string $token, array $candidateTokens): int {
+		if (in_array($token, $candidateTokens, true)) return 2;
+		if (strlen($token) < 3) return 0;
+		foreach ($candidateTokens as $candidate) {
+			if (strlen($candidate) >= 3 && (str_starts_with($candidate, $token) || str_starts_with($token, $candidate))) {
+				return 1;
+			}
+		}
+		return 0;
 	}
 
 	/** @return list<string> */
-	private function searchTokens(string $value): array {
-		$normalized = $this->normalizeSearchText($value);
+	private function searchTokens(string $normalized): array {
 		if ($normalized === '') return [];
 
 		$tokens = [];
 		foreach (explode(' ', $normalized) as $token) {
+			if (in_array($token, ['a', 'an', 'and', 'as', 'at', 'by', 'for', 'from', 'in', 'is', 'of', 'on', 'or', 'the', 'to', 'with'], true)) continue;
 			$token = $this->normalizeSearchToken($token);
 			if ($token !== '') $tokens[$token] = true;
 		}
-		return array_keys($tokens);
+		return array_map('strval', array_keys($tokens));
 	}
 
 	private function normalizeSearchText(string $value): string {

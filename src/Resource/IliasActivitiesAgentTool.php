@@ -19,6 +19,7 @@ namespace Base3\MissionBayIliasActivities\Resource;
 
 use Base3\AssistantFoundation\Api\IAgentContext;
 use Base3\CoreFoundation\Accesscontrol\Api\IAccesscontrol;
+use Base3\CoreFoundation\Api\IOutputSchemaProvider;
 use InvalidArgumentException;
 use Base3\MissionBay\Api\IAgentTool;
 use Base3\MissionBay\Api\IConfirmableAgentTool;
@@ -26,7 +27,7 @@ use Base3\MissionBay\Resource\AbstractAgentResource;
 use Base3\MissionBayIliasActivities\Api\IIliasActivityService;
 use Throwable;
 
-final class IliasActivitiesAgentTool extends AbstractAgentResource implements IAgentTool, IConfirmableAgentTool {
+final class IliasActivitiesAgentTool extends AbstractAgentResource implements IAgentTool, IConfirmableAgentTool, IOutputSchemaProvider {
 
 	private const FN_SEARCH = 'search_ilias_activities';
 	private const FN_DESCRIBE = 'describe_ilias_activity';
@@ -54,7 +55,7 @@ final class IliasActivitiesAgentTool extends AbstractAgentResource implements IA
 			$this->readDefinition(
 				self::FN_SEARCH,
 				'Search ILIAS Activities',
-				'Search only the native ILIAS Activity capability catalogue by technical name, short class name or description. This does NOT search ILIAS domain data. Never pass a person name, course title, ref_id or other entity value here. Search by the capability you need, for example "find user", "find repository object", "list course members" or "add course member". If no exact match is found, retry with broader capability terms or list the relevant Activity type before telling the user that no capability exists. Do not ask the user whether you should broaden the search. After choosing an Activity, call describe_ilias_activity and then pass actual domain values only inside Activity execution parameters.',
+				'Search only the native ILIAS Activity capability catalogue by technical name, short class name or description. Results are ranked by matching capability terms; partial matches may be unrelated to the intended operation. This does NOT search ILIAS domain data. Never pass a person name, course title, ref_id or other entity value here. Search by the capability you need, for example "find user", "find repository object", "list course members" or "add course member". If no suitable Activity is found, retry with broader capability terms or list the relevant Activity type before telling the user that no capability exists. Do not ask the user whether you should broaden the search. After choosing an Activity, call describe_ilias_activity and then pass actual domain values only inside Activity execution parameters.',
 				[
 					'query' => [
 						'type' => 'string',
@@ -98,6 +99,130 @@ final class IliasActivitiesAgentTool extends AbstractAgentResource implements IA
 			),
 			$this->commandDefinition()
 		];
+	}
+
+	/**
+	 * Describes the actual metadata and execution response envelopes, including
+	 * native failures and tool exceptions. The generic execution contract describes
+	 * only the canonical primitive representation of an Activity result; the exact
+	 * business schema depends on the Activity and is enforced by the native output
+	 * description in IIliasActivityService. Describe that Activity before using
+	 * its result fields. No catalogue enumeration, actor lookup or execution occurs.
+	 * All four functions remain available as ordinary calls.
+	 *
+	 * @return array<string,array<string,mixed>> Schemas keyed by the original function name.
+	 */
+	public function getOutputSchemas(): array {
+		$string = ['type' => 'string'];
+		$boolean = ['type' => 'boolean'];
+		$nonNegativeInteger = ['type' => 'integer', 'minimum' => 0];
+		$strings = ['type' => 'array', 'items' => $string];
+		$identity = [
+			'name' => $string,
+			'short_name' => $string,
+			'type' => $string,
+			'description' => $string
+		];
+		$metadata = [
+			'metadata_complete' => $boolean,
+			'metadata_warnings' => $strings
+		];
+		// These values are schema documents, not the results of executing an Activity.
+		// The mapper can emit extension keywords; missing metadata is represented by [].
+		$schemaDocument = ['anyOf' => [
+			['type' => 'object', 'additionalProperties' => true],
+			['type' => 'array', 'maxItems' => 0]
+		]];
+
+		return [
+			self::FN_SEARCH => ['oneOf' => [
+				$this->objectSchema([
+					'ok' => ['const' => true],
+					'purpose' => ['const' => 'activity_capability_catalogue'],
+					'query' => $string,
+					'type' => ['type' => ['string', 'null'], 'enum' => ['query', 'command', null]],
+					'offset' => $nonNegativeInteger,
+					'limit' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 100],
+					'total' => $nonNegativeInteger,
+					'items' => [
+						'type' => 'array',
+						'maxItems' => 100,
+						'items' => $this->objectSchema($identity + $metadata, ['metadata_warnings'])
+					],
+					'usage' => $string,
+					'suggestion' => $string
+				], ['suggestion']),
+				$this->errorSchema(self::FN_SEARCH)
+			]],
+			self::FN_DESCRIBE => ['oneOf' => [
+				$this->objectSchema(['ok' => ['const' => true]] + $identity + [
+					'input_schema' => $schemaDocument,
+					'input_schema_supported' => $boolean,
+					'unsupported_input_types' => $strings,
+					'output_schema' => $schemaDocument,
+					'output_schema_supported' => $boolean,
+					'unsupported_output_types' => $strings
+				] + $metadata),
+				$this->errorSchema(self::FN_DESCRIBE)
+			]],
+			self::FN_QUERY => $this->executionSchema(self::FN_QUERY, 'query'),
+			self::FN_COMMAND => $this->executionSchema(self::FN_COMMAND, 'command')
+		];
+	}
+
+	/**
+	 * @param array<string,array<string,mixed>> $properties
+	 * @param list<string> $optional
+	 * @return array<string,mixed>
+	 */
+	private function objectSchema(array $properties, array $optional = []): array {
+		return [
+			'type' => 'object',
+			'properties' => $properties,
+			'required' => array_values(array_diff(array_keys($properties), $optional)),
+			'additionalProperties' => false
+		];
+	}
+
+	/**
+	 * The envelope is fixed; result is the native Description's JSON value.
+	 * Its Activity-specific contract is not replaced by this transport schema.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function executionSchema(string $name, string $type): array {
+		$identity = [
+			'activity' => ['type' => 'string', 'minLength' => 1],
+			'type' => ['const' => $type]
+		];
+		return ['oneOf' => [
+			$this->objectSchema(['ok' => ['const' => true]] + $identity + [
+				'result' => [
+					'type' => ['object', 'array', 'string', 'number', 'boolean', 'null'],
+					'description' => 'Canonical JSON value of the selected native Activity after validation against its own ILIAS output description. Check the call status and output.ok before reading result. The exact result shape is the output_schema returned by describe_ilias_activity for that Activity when supported. Do not guess result fields when metadata is incomplete or assume all Activities return objects or arrays. Do not retry failed mutations blindly.'
+				]
+			]),
+			$this->objectSchema(['ok' => ['const' => false]] + $identity + [
+				'error' => $this->objectSchema([
+					'code' => ['const' => 'activity_execution_failed'],
+					'message' => ['type' => 'string']
+				])
+			]),
+			$this->errorSchema($name)
+		]];
+	}
+
+	/** @return array<string,mixed> */
+	private function errorSchema(string $name): array {
+		return $this->objectSchema([
+			'ok' => ['const' => false],
+			'operation' => ['const' => $name],
+			'error' => $this->objectSchema([
+				'code' => ['type' => 'string', 'enum' => ['invalid_argument', 'ilias_activity_failed']],
+				'message' => ['type' => 'string'],
+				'exception_type' => ['type' => 'string']
+			])
+		]);
 	}
 
 	public function getConfirmationRequest(string $name, array $arguments, IAgentContext $context): ?array {
